@@ -43,7 +43,7 @@ nohup /usr/local/bin/tailscaled --state=$STATE --socket=$SOCK >> $LOG 2>&1 &
 for i in $(seq 1 25); do
   s=$(st)
   if [ "$(echo $s | cut -d' ' -f1-2)" = "Running True" ]; then
-    echo 0 > "$OFF_CNT"; echo "RESTARTED_OK $s" exit 0
+    echo 0 > "$OFF_CNT"; echo "RESTARTED_OK $s"; exit 0
   fi
   [ "${s%% *}" = "NeedsLogin" ] && break; sleep 1
 done
