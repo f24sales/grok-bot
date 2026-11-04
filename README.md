@@ -8,7 +8,7 @@ Installiert unter `/usr/local/bin/ts-check.sh` (root, 755), Aufruf: `sudo /usr/l
 
 - Prüft `tailscaled`: BackendState und ob die Maschine wirklich online ist (`Self.Online`).
 - „Eingeloggt“ (gültiger Schlüssel) und „online“ (aktive Verbindung zum Tailscale-Server) sind getrennte Zustände. Eine Maschine kann eingeloggt, aber offline sein, z. B. wenn der Control-Long-Poll wiederholt abläuft.
-- Offline: Zähler in `/var/lib/tailscale/offline_count` wird erhöht. Erst nach `OFFLINE_THRESHOLD` (Standard 3) Offline-Checks in Folge wird `tailscaled` neu gestartet und das Ergebnis an OpenClaw gemeldet. Bei `OK` wird der Zähler zurückgesetzt.
+- Offline: Zähler in `/var/lib/tailscale/offline_count` wird erhöht. Ab `OFFLINE_THRESHOLD` (Standard 1, also sofort) Offline-Checks in Folge wird `tailscaled` neu gestartet und das Ergebnis an OpenClaw gemeldet. Bei `OK` wird der Zähler zurückgesetzt.
 - Braucht Tailscale einen Login (`NeedsLogin`): holt die Auth-URL (notfalls per `tailscale up`) und schickt sie an OpenClaw (`$OPENCLAW_URL/mcp/direct`, Bearer-Auth), einmal pro URL.
 
 Ausgaben und Exit-Codes:

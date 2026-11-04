@@ -10,7 +10,7 @@ LOG=/var/log/tailscaled.log
 HOOK_ENV=/home/box/.config/ts-watchdog/env
 HOOK_LAST=/var/lib/tailscale/last_auth_hook_url
 OFF_CNT=/var/lib/tailscale/offline_count
-OFFLINE_THRESHOLD=${OFFLINE_THRESHOLD:-3}
+OFFLINE_THRESHOLD=${OFFLINE_THRESHOLD:-1}
 st() { tailscale status --json 2>/dev/null | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('BackendState'),d['Self'].get('Online'),d.get('AuthURL') or '-')" 2>/dev/null; }
 post() { # $1 = text
   [ -r "$HOOK_ENV" ] || return 1
