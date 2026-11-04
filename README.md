@@ -23,14 +23,14 @@ Ausgaben und Exit-Codes:
 
 ## Hook-Konfiguration
 
-Datei `/home/box/.config/ts-watchdog/env` (600, **nicht im Repo**):
+`ts-check_example.env` nach `ts-check.env` kopieren (neben `ts-check.sh`, `chmod 600`) und ausfüllen. `ts-check.env` steht in der `.gitignore` und kommt nie ins Repo.
 
 ```sh
 OPENCLAW_URL='https://…'
 OPENCLAW_MCP_BRIDGE_BEARER='…'
 ```
 
-Fehlt die Datei, wird kein Hook gefeuert. Die zuletzt gesendete Login-URL steht in `/var/lib/tailscale/last_auth_hook_url`.
+Das Skript sucht `ts-check.env` in seinem eigenen Ordner (Symlinks werden aufgelöst), Fallback ist `/home/box/.config/ts-watchdog/env`. Fehlt beides, wird kein Hook gefeuert. Die zuletzt gesendete Login-URL steht in `/var/lib/tailscale/last_auth_hook_url`.
 
 ## Auslöser
 

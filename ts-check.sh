@@ -7,7 +7,8 @@
 STATE=/var/lib/tailscale/tailscaled.state
 SOCK=/var/run/tailscale/tailscaled.sock
 LOG=/var/log/tailscaled.log
-HOOK_ENV=/home/box/.config/ts-watchdog/env
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+HOOK_ENV="$SCRIPT_DIR/ts-check.env"; [ -r "$HOOK_ENV" ] || HOOK_ENV=/home/box/.config/ts-watchdog/env
 HOOK_LAST=/var/lib/tailscale/last_auth_hook_url
 OFF_CNT=/var/lib/tailscale/offline_count
 OFFLINE_THRESHOLD=${OFFLINE_THRESHOLD:-1}
