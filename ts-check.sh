@@ -3,7 +3,7 @@
 # NeedsLogin            -> NEEDS_LOGIN, POST auth URL to OpenClaw (once per URL), exit 2
 # Running + Online      -> OK, offline counter reset, exit 0
 # not Online / no daemon-> counter+1; below OFFLINE_THRESHOLD: OFFLINE n/N exit 0 (no restart)
-#                          at threshold: restart tailscaled, notify OpenClaw with result
+#                          at threshold: restart tailscaled (no OpenClaw message; only login URLs are posted)
 STATE=/var/lib/tailscale/tailscaled.state
 SOCK=/var/run/tailscale/tailscaled.sock
 LOG=/var/log/tailscaled.log
@@ -42,8 +42,7 @@ nohup /usr/local/bin/tailscaled --state=$STATE --socket=$SOCK >> $LOG 2>&1 &
 for i in $(seq 1 25); do
   s=$(st)
   if [ "$(echo $s | cut -d' ' -f1-2)" = "Running True" ]; then
-    echo 0 > "$OFF_CNT"; echo "RESTARTED_OK $s"
-    post "Tailscale auf grok-bot war $n Checks offline, tailscaled neu gestartet: wieder online."; exit 0
+    echo 0 > "$OFF_CNT"; echo "RESTARTED_OK $s" exit 0
   fi
   [ "${s%% *}" = "NeedsLogin" ] && break; sleep 1
 done
@@ -51,5 +50,4 @@ if [ "${s%% *}" = "NeedsLogin" ]; then
   url=$(timeout 15 tailscale up --ssh --hostname=grok-bot 2>&1 | grep -oE 'https://login.tailscale.com/[^ ]+' | head -1)
   echo "NEEDS_LOGIN ${url:-unknown}"; notify_login "${url:-unknown}"; exit 2
 fi
-echo "RESTART_FAILED $s"
-post "Tailscale auf grok-bot war $n Checks offline, Neustart von tailscaled fehlgeschlagen ($s)."; exit 1
+echo "RESTART_FAILED $s"; exit 1

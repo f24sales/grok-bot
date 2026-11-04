@@ -8,7 +8,7 @@ Installiert unter `/usr/local/bin/ts-check.sh` (root, 755), Aufruf: `sudo /usr/l
 
 - Prüft `tailscaled`: BackendState und ob die Maschine wirklich online ist (`Self.Online`).
 - „Eingeloggt“ (gültiger Schlüssel) und „online“ (aktive Verbindung zum Tailscale-Server) sind getrennte Zustände. Eine Maschine kann eingeloggt, aber offline sein, z. B. wenn der Control-Long-Poll wiederholt abläuft.
-- Offline: Zähler in `/var/lib/tailscale/offline_count` wird erhöht. Ab `OFFLINE_THRESHOLD` (Standard 1, also sofort) Offline-Checks in Folge wird `tailscaled` neu gestartet und das Ergebnis an OpenClaw gemeldet. Bei `OK` wird der Zähler zurückgesetzt.
+- Offline: Zähler in `/var/lib/tailscale/offline_count` wird erhöht. Ab `OFFLINE_THRESHOLD` (Standard 1, also sofort) Offline-Checks in Folge wird `tailscaled` neu gestartet (ohne Meldung an OpenClaw). Bei `OK` wird der Zähler zurückgesetzt.
 - Braucht Tailscale einen Login (`NeedsLogin`): holt die Auth-URL (notfalls per `tailscale up`) und schickt sie an OpenClaw (`$OPENCLAW_URL/mcp/direct`, Bearer-Auth), einmal pro URL.
 
 Ausgaben und Exit-Codes:
@@ -17,8 +17,8 @@ Ausgaben und Exit-Codes:
 |---|---|---|
 | `OK …` | 0 | nein |
 | `OFFLINE n/N …` | 0 | nein |
-| `RESTARTED_OK …` (+ `HOOK_HTTP <code>`) | 0 | ja |
-| `RESTART_FAILED …` (+ `HOOK_HTTP <code>`) | 1 | ja |
+| `RESTARTED_OK …` | 0 | nein |
+| `RESTART_FAILED …` | 1 | nein |
 | `NEEDS_LOGIN <url>` (+ `HOOK_HTTP <code>` / `HOOK_SKIPPED_ALREADY_SENT`) | 2 | ja, einmal pro URL |
 
 ## Hook-Konfiguration
@@ -34,4 +34,4 @@ Fehlt die Datei, wird kein Hook gefeuert. Die zuletzt gesendete Login-URL steht 
 
 ## Auslöser
 
-Eine Grok-Bot-Routine („Tailscale-Check per Webhook“) ruft das Skript per Webhook auf. Bei `OK` und `OFFLINE n/N` bleibt sie still. Hat die OpenClaw-Meldung geklappt (HTTP 2xx), meldet sie sich auch sonst nicht im Chat, nur bei Fehlern.
+Eine Grok-Bot-Routine („Tailscale-Check per Webhook“) ruft das Skript per Webhook auf. An OpenClaw geht nur der Auth-Link bei `NEEDS_LOGIN`. Bei `OK`, `OFFLINE n/N` und `RESTARTED_OK` bleibt sie still; im Chat meldet sie sich nur, wenn der Login-Link nicht zugestellt werden konnte oder ein Neustart zweimal fehlschlägt.
