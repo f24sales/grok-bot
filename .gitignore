@@ -1,1 +1,4 @@
 ts-check.env
+webhook-ping.env
+webhook_ping.log
+__pycache__/

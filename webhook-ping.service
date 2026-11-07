@@ -1,0 +1,14 @@
+[Unit]
+Description=Grok Bot keepalive webhook (single ping)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/grok-bot/webhook-ping.env
+ExecStart=/usr/bin/python3 %h/webhook_ping.py --once
+TimeoutStartSec=30s
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=grok-bot-keepalive

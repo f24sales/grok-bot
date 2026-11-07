@@ -1,6 +1,9 @@
 # grok-bot
 
-Tailscale watchdog for the machine `grok-bot`.
+Tailscale watchdog for the machine `grok-bot`, plus a host-side webhook keepalive.
+
+- On the Grok Bot machine: [`ts-check.sh`](#ts-checksh) checks Tailscale and forwards login links when needed.
+- On the always-on host: [`webhook_ping.py`](#host-keepalive-webhook_pingpy) triggers the Grok Bot routine once or every minute.
 
 ## ts-check.sh
 
@@ -89,3 +92,95 @@ The script looks for `ts-check.env` in its own directory (symlinks are resolved)
 ## Trigger
 
 A Grok Bot routine ("Tailscale check via webhook") calls the script via webhook. Only a login URL is sent to OpenClaw, and only from `NeedsLogin`. On `OK`, `OFFLINE n/N`, and `RESTARTED_OK` the routine stays silent; in chat it reports only if the login link could not be delivered or a restart fails twice.
+
+## Host keepalive: webhook_ping.py
+
+The host calls the **Grok Bot keepalive/Tailscale routine webhook** with an authenticated POST:
+
+```json
+{"source": "keepalive"}
+```
+
+The minute ping is used in this setup to keep the Grok Bot cloud machine (the operator's AWS machine) awake by regularly triggering work, including the Tailscale check. Run this sender on an always-on host outside the Grok Bot machine, so the trigger continues when that machine is sleeping. Continued availability depends on the host, network and Grok Bot accepting and executing the routine; the ping cannot guarantee the cloud machine's lifetime or prevent a provider reset.
+
+This is a separate webhook from `litellm-free-cursor.service`, which sends a published model YAML URL and scan timestamp. It also differs from the OpenClaw hook that receives a Tailscale login URL from `ts-check.sh`. Use the **keepalive routine's own URL and bearer key** here.
+
+### Install on the sending host
+
+Requirements: Python 3, the Python `requests` package (commonly packaged as `python3-requests`), and a running systemd user manager. Check that the same interpreter used by the service can import the dependency:
+
+```sh
+/usr/bin/python3 -c 'import requests'
+```
+
+Run the following from this repository's root as the host user who will run the timer:
+
+```sh
+install -m 700 webhook_ping.py "$HOME/webhook_ping.py"
+install -d -m 700 "$HOME/.config/grok-bot"
+install -d "$HOME/.config/systemd/user"
+install -m 644 webhook-ping.service webhook-ping.timer "$HOME/.config/systemd/user/"
+# Create the local config only if it does not already exist.
+if [ ! -e "$HOME/.config/grok-bot/webhook-ping.env" ]; then
+    install -m 600 webhook-ping_example.env "$HOME/.config/grok-bot/webhook-ping.env"
+fi
+```
+
+Edit `~/.config/grok-bot/webhook-ping.env` and replace both placeholders with the URL and bearer key from the Grok Bot keepalive routine. Keep mode `600`. The service reads this file directly, so credentials do not need to be imported into the systemd manager environment. No real webhook address or key is included in this repository. Local `webhook-ping.env` files are gitignored.
+
+```sh
+systemctl --user daemon-reload
+```
+
+### One-shot: send exactly one ping
+
+Stop an existing minute timer first if you want only one request:
+
+```sh
+systemctl --user stop webhook-ping.timer
+systemctl --user start webhook-ping.service
+```
+
+The service executes `webhook_ping.py --once`, then exits. Successful one-shot services normally return to `inactive (dead)`; check `Result=success`, exit status and the log. Starting the service does not start the timer.
+
+```sh
+systemctl --user show webhook-ping.service -p Result -p ExecMainStatus
+journalctl --user -u webhook-ping.service -n 10 --no-pager
+```
+
+HTTP 200 confirms the webhook request was accepted; it does not itself prove that the remote Tailscale check finished. The response may include `success` and a run ID to correlate with the Grok Bot routine.
+
+### Every minute: keep the Grok Bot machine active
+
+```sh
+# Start the schedule. The first scheduled ping runs at the next minute boundary.
+systemctl --user start webhook-ping.timer
+
+# Optional: send a first ping immediately as well.
+systemctl --user start webhook-ping.service
+
+systemctl --user list-timers webhook-ping.timer --all --no-pager
+journalctl --user -u webhook-ping.service -f
+```
+
+`OnCalendar=*-*-* *:*:00` triggers once each minute with one-second accuracy. Each activation sends one request and finishes. `Persistent=false` avoids replaying missed pings after downtime. The same service cannot run twice concurrently.
+
+The timer deliberately has no `[Install]` section: these commands start it for the current user-manager lifetime and do **not** enable boot autostart. It must be started again after that manager stops or the host reboots. A user manager must remain running for the minute pings to continue.
+
+### Stop the minute pings
+
+```sh
+systemctl --user stop webhook-ping.timer webhook-ping.service
+```
+
+Stopping both prevents future timer runs and ends an active sender. A webhook already accepted by Grok Bot cannot be recalled by stopping the local service.
+
+### Standalone script behavior
+
+The packaged systemd service always passes `--once`. The script also retains the original standalone loop: without `--once`, it sends a ping every `INTERVAL_SECONDS` seconds (default 60) while running. Supply `WEBHOOK_URL` and `WEBHOOK_KEY` in that process's environment. Do not run this loop alongside the timer unless you intentionally want two senders.
+
+- Each POST uses `Authorization: Bearer <WEBHOOK_KEY>`, JSON content type and a 15-second request timeout.
+- Missing URL or key exits before any request. In one-shot mode, non-200 responses and network errors exit nonzero.
+- In standalone loop mode, HTTP 401, 403 or 404 ends the process. HTTP 429 adds an exponential backoff from 60 to 900 seconds; HTTP 200 resets it. The systemd timer instead makes a fresh one-shot attempt each minute.
+- `SIGINT` or `SIGTERM` stops the standalone loop. Changing `INTERVAL_SECONDS` does not change the systemd timer's calendar.
+

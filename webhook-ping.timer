@@ -1,0 +1,8 @@
+[Unit]
+Description=Run the Grok Bot keepalive every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=1s
+Persistent=false
+Unit=webhook-ping.service
