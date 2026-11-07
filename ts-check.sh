@@ -21,14 +21,37 @@ TS_DAEMON=/usr/local/bin/tailscaled
 # Pinned to version verified on this host via pkgs.tailscale.com stable static channel.
 # Bump deliberately when upgrading; checksum is always fetched from official .sha256 URL.
 TS_STATIC_VER=1.104.5
+# Single instance across self re-exec and the whole sequential auth wait.
+# Lock lives in root-only /var/lib/tailscale (0700). FD 9 is closed for daemon/children.
+LOCK=/var/lib/tailscale/ts-check.lock
+if [ "${TS_CHECK_LOCKED:-0}" != 1 ]; then
+  mkdir -p -m 700 /var/lib/tailscale
+  exec 9>"$LOCK" || { echo "LOCK_FAILED"; exit 1; }
+  flock -n 9 || { echo "BUSY"; exit 0; }
+  export TS_CHECK_LOCKED=1
+fi
+# Non-executing env parser: only KEY=value / KEY='value' / KEY="value" for the two expected keys.
+load_hook_env() {
+  local k v
+  OPENCLAW_URL=; OPENCLAW_MCP_BRIDGE_BEARER=
+  [ -r "$HOOK_ENV" ] || return 1
+  while IFS='=' read -r k v || [ -n "$k" ]; do
+    case "$v" in \'*\') v=${v#\'}; v=${v%\'} ;; \"*\") v=${v#\"}; v=${v%\"} ;; esac
+    case "$k" in
+      OPENCLAW_URL) OPENCLAW_URL=$v ;;
+      OPENCLAW_MCP_BRIDGE_BEARER) OPENCLAW_MCP_BRIDGE_BEARER=$v ;;
+    esac
+  done < "$HOOK_ENV"
+  [ -n "$OPENCLAW_URL" ] && [ -n "$OPENCLAW_MCP_BRIDGE_BEARER" ]
+}
 st() { tailscale status --json 2>/dev/null | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('BackendState'),d['Self'].get('Online'),d.get('AuthURL') or '-')" 2>/dev/null; }
 post() { # $1 = text
-  [ -r "$HOOK_ENV" ] || return 1
-  ( set -a; . "$HOOK_ENV"; set +a
-    [ -n "$OPENCLAW_URL" ] && [ -n "$OPENCLAW_MCP_BRIDGE_BEARER" ] || exit 1
+  ( load_hook_env || exit 1
     body=$(python3 -c 'import json,sys;print(json.dumps({"text":sys.argv[1]}))' "$1")
-    code=$(curl -sS -m 15 -o /dev/null -w '%{http_code}' "$OPENCLAW_URL/mcp/direct" \
-      -H "Authorization: Bearer $OPENCLAW_MCP_BRIDGE_BEARER" -H 'Content-Type: application/json' -d "$body")
+    # Bearer via stdin header (-H @-), not argv
+    code=$(printf 'Authorization: Bearer %s\n' "$OPENCLAW_MCP_BRIDGE_BEARER" | \
+      curl -sS -m 15 -o /dev/null -w '%{http_code}' "$OPENCLAW_URL/mcp/direct" \
+      -H @- -H 'Content-Type: application/json' -d "$body" 9>&-)
     echo "HOOK_HTTP $code"; [ "${code:0:1}" = "2" ] )
 }
 notify_login() { # $1 = auth url, sent once per URL
@@ -76,7 +99,7 @@ TS_DAEMON=/usr/local/bin/tailscaled
 if ! pgrep -x tailscaled >/dev/null; then
   if [ "${TS_CHECK_STARTED:-0}" -eq 0 ]; then
     export TS_CHECK_STARTED=1
-    nohup "$TS_DAEMON" --state=$STATE --socket=$SOCK >> $LOG 2>&1 &
+    nohup "$TS_DAEMON" --state=$STATE --socket=$SOCK >> $LOG 2>&1 9>&- &
     for i in $(seq 1 10); do pgrep -x tailscaled >/dev/null && break; sleep 1; done
     exec "$0" "$@"
   fi
@@ -91,7 +114,7 @@ wait_up_ssh() {
     url=$u
     [ "$printed" -eq 0 ] && { echo "NEEDS_LOGIN $url"; printed=1; }
     notify_login "$url"
-  done < <(stdbuf -oL -eL tailscale up --ssh 2>&1)
+  done < <(stdbuf -oL -eL tailscale up --ssh 2>&1 9>&-)
   printf '%s\n' "$url"
 }
 s=$(st)
@@ -109,7 +132,7 @@ fi
 n=$(( $(cat "$OFF_CNT" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$OFF_CNT"
 if [ "$n" -lt "$OFFLINE_THRESHOLD" ]; then echo "OFFLINE $n/$OFFLINE_THRESHOLD ${s:-no-daemon}"; exit 0; fi
 pkill -TERM -x tailscaled; for i in $(seq 1 10); do pgrep -x tailscaled >/dev/null || break; sleep 1; done
-nohup "$TS_DAEMON" --state=$STATE --socket=$SOCK >> $LOG 2>&1 &
+nohup "$TS_DAEMON" --state=$STATE --socket=$SOCK >> $LOG 2>&1 9>&- &
 for i in $(seq 1 25); do
   s=$(st)
   if [ "$(echo $s | cut -d' ' -f1-2)" = "Running True" ]; then
